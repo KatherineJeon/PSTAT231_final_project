@@ -278,7 +278,7 @@ bt_final_fit <- fit(bt_final, data = data_train)
 
 ```{r}
 augment(bt_final_fit, new_data = data_test) %>%
-  rsq(truth = revenue, estimate = .pred_class)
+  accuracy(truth = revenue, estimate = .pred_class)
 ```
 
 
@@ -326,7 +326,7 @@ knn_final_fit <- fit(knn_final, data = data_train)
 
 ```{r}
 augment(knn_final_fit, new_data = data_test) %>%
-  rsq(truth = revenue, estimate = .pred_class)
+  accuracy(truth = revenue, estimate = .pred_class)
 ```
 
 
