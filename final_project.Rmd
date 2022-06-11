@@ -1,0 +1,384 @@
+---
+title: "PSTAT231 Final Project"
+author: 'Seyeon Jeon'
+output: html_document
+date: '2022-06-04'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+E-commerce is rapidly growing field of business and especially during pandemic, the growth of e-commerce market was remarkable. The sales accounted for 18% in 2020 and it is expected to reach 21.8% in 2024. I thought it would be useful if we can predict whether the customer will purchase the product or not with their browsing data.
+
+The main objective of this project is to find a proper model to predict whether the customer is going to make purchase or not. The data set was obtained from [UCI's machine learning repository](https://archive.ics.uci.edu/ml/datasets/Online+Shoppers+Purchasing+Intention+Dataset). The dataset contains 12330 sessions, which means 12330 people visited the website. 
+
+
+## Preparing Data and Packages
+
+Setting seed to make the results repeatable.
+```{r}
+library(ggplot2)
+library(tidymodels)
+library(tidyverse)
+library(janitor)
+library(dplyr)
+
+set.seed(45)
+```
+
+```{r}
+data <- read.csv('online_shoppers_intention.csv')
+head(data)
+```
+
+According to the description of the data set, "Administrative", "Administrative Duration", "Informational", "Informational Duration", "Product Related" and "Product Related Duration" represent the number of different types of pages visited by the visitor in that session and total time spent in each of these page categories.
+
+```{r}
+sapply(data, FUN = 'class')
+```
+So there is 18 columns in this data set which consists of 10 numerical and 8 categorical values. Our target value is 'Revenue' which indicates whether the customer purchased a product or not. 
+
+
+Checking if there's any missing values.
+```{r}
+sum(is.na(data))
+```
+Luckily, there is no missing values.
+
+### Data Cleaning
+
+To make it easier to deal with the data set, I manipulated the labels.
+```{r}
+data <- clean_names(data)
+data$special_day <- factor(data$special_day)
+data$revenue <- factor(data$revenue)
+data$month <- factor(data$month)
+data$region <- factor(data$region)
+data$weekend <- factor(data$weekend)
+```
+
+
+I also checked the correlations between all the variables so that I can see the tendency.
+Before plotting correlation matrix, I one-hot coded all the nominal values so that all of the predictors can be included in the plot.
+```{r}
+library(corrplot)
+library(caret)
+
+dmy <- dummyVars(" ~ .", data = data)
+d_data <- data.frame(predict(dmy, newdata = data))
+
+corrplot(cor(d_data), method = 'color', tl.col = 'black', tl.srt = 45, tl.cex = 0.5,
+         col = COL2('PiYG'), cl.pos = 'b')
+```
+
+The plot shows that 'administrative' and 'administrative duration', 'informational' and 'informational duration', 'product related' and 'product related duration's are highly correlated and this can cause collinearity problem when fitting models. So, I replaced these labels with the average time spent on each type of page for example, 'administrative duration' divided by 'administrative' and named it 'average_administration'.
+
+```{r}
+average_administrative <- data$administrative_duration / data$administrative
+average_informational <- data$informational_duration / data$informational
+average_prod_related <- data$product_related_duration / data$product_related
+nec_data <- subset(data, select = -c(administrative, administrative_duration, informational, informational_duration, product_related, product_related_duration))
+clean_data <- cbind(nec_data, average_administrative, average_informational, average_prod_related)
+```
+
+```{r}
+clean_data
+```
+
+There are some NaN values because 'administrative', 'informational', and 'product related' columns had 0 values. Since it means that the customer didn't visit that type of page at all, I replaced all NaN values with 0.
+
+```{r}
+clean_data[is.na(clean_data)] <- 0
+sum(is.na(clean_data))
+clean_data
+```
+
+### Data Spliting
+
+Now, I am going to split the data. Since the goal of this project is to predict 'revenue' value, stratified random sampling using 'revenue' as strata would be suitable.
+
+```{r}
+data_split <- clean_data %>% 
+  initial_split(prop = 0.8, strata = revenue)
+
+data_train <- training(data_split)
+data_test <- testing(data_split)
+
+nrow(data_train)
+```
+
+I used 0.8 probability to make sure I have enough number of training data. After the split, training data has 9863 observations. From this chunk, I am going to use the train set for EDA.
+
+
+## Exploratory Data Analysis
+
+```{r}
+ggplot(data_train, aes(revenue, fill = revenue)) + geom_bar() + geom_text(aes(label = ..count..), stat = 'count', vjust = 1.5, color = 'white') + theme_minimal()
+```
+There is much more 'FALSE' data compared to 'TRUE' data which means much more people didn't actually make a purchase. Since we are trying to predict revenue, we should definitely be using strata to make a balanced split.
+
+
+```{r}
+ggplot(count(data, month, revenue), aes(x = month, y = n, group = revenue)) + geom_line(aes(color = revenue)) + geom_point(aes(color = revenue)) + geom_text(aes(label = n), vjust = - 0.5) + theme_minimal()
+```
+
+```{r}
+month_rate <- count(subset(clean_data, revenue == TRUE), month)['n'] / count(clean_data, month)['n']
+month_rate <- cbind(month_rate, count(clean_data, month)[1])
+month_rate
+```
+
+
+```{r}
+ggplot(month_rate, aes(x = month, y = n, fill = month)) + geom_bar(stat = 'identity') + geom_text(aes(label = month), vjust = 1.5, color = 'white') + theme_minimal()
+```
+
+We can see that the number of people visiting the e-commerce website was significantly high in May and November. However, number of the visitors was the highest in May but the rate of purchase was not they highest. The purchase rate was the highest in November and the lowest in February.
+
+
+```{r}
+ggplot(data_train, aes(visitor_type, fill = revenue)) + geom_bar() + geom_text(aes(label = ..count..), stat = 'count', position = position_stack(vjust= 0.5), color = 'white') + theme_minimal()
+```
+
+```{r}
+visitor_rate <- count(subset(clean_data, revenue == TRUE), visitor_type)['n'] / count(clean_data, visitor_type)['n']
+visitor_rate <- cbind(visitor_rate, count(clean_data, visitor_type)[1])
+visitor_rate
+```
+
+```{r}
+ggplot(visitor_rate, aes(x = visitor_type, y = n, fill = visitor_type)) + geom_bar(stat = 'identity') + geom_text(aes(label = visitor_type), vjust = 1.5, color = 'white') + theme_minimal()
+```
+In case of visitor types, the customer who visited the website for the first time had the highest purchase rate.
+
+
+## Model Building and Fitting 
+* Random Forest
+* Boosted Tree
+* KNN
+* Neural Network
+
+### K-cross Validation
+
+```{r}
+train_folds <- vfold_cv(data_train, v = 5, strata = revenue)
+```
+
+
+### Creating a Recipe
+```{r}
+shop_recipe <- recipe(revenue ~ ., data = data_train) %>%
+  step_dummy(all_nominal_predictors(), one_hot = TRUE) %>%
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors())
+```
+One hot encoded all the nominal predictors.
+
+
+### Models
+
+> Random Forest
+
+The first model is Random Forest. I tuned 'min_n' which is the number of predictors that will be randomly sampled at each split when creating the tree models and 'mtry' which is the minimum number of data points in a node that are required for the node to be split further.
+```{r}
+library(randomForest)
+rf_model <- rand_forest(
+  min_n = tune(), 
+  mtry = tune()) %>%
+  set_engine('randomForest', importance = TRUE) %>%
+  set_mode('classification')
+
+rf_wf <- workflow() %>%
+  add_model(rf_model) %>%
+  add_recipe(shop_recipe)
+```
+
+
+Fitting the model defined above.
+
+```{r}
+rf_grid <- grid_regular(mtry(range = c(1, 10)),
+                        min_n(range = c(1, 10)),
+                              levels = 2)
+
+rf_tune <- rf_wf %>%
+   tune_grid(resamples = train_folds,
+            grid = rf_grid)
+  
+save(rf_tune, rf_wf, file = "model_fitting/randomforest.rda")
+```
+
+I tried running this chunk with 10 levels but it took over an hour and my laptop was dying so I changed to 2. Also saved as a seperate file. The example final project helped me a lot through this procedure. 
+
+```{r}
+autoplot(rf_tune)
+```
+
+Finding the parameter to make the most accurate model, and fitting test data set to the best model.
+```{r}
+collect_metrics(rf_tune) %>% arrange(desc(mean))
+best_parameter <- select_best(rf_tune, metric = 'accuracy')
+rf_final <- finalize_workflow(rf_wf, best_parameter)
+rf_final_fit <- fit(rf_final, data = data_train)
+```
+
+```{r}
+rf_final_fit
+```
+
+
+* Evaluate
+
+```{r}
+augment(rf_final_fit, new_data = data_test) %>%
+  accuracy(truth = revenue, estimate = .pred_class)
+```
+
+> Boosted Tree
+
+For boosted tree model, I tuned the number of trees.
+```{r}
+library(xgboost)
+bt_model <- boost_tree(trees = tune()) %>%
+  set_engine('xgboost') %>%
+  set_mode('classification')
+
+bt_wf <- workflow() %>% 
+  add_model(bt_model) %>% 
+  add_recipe(shop_recipe)
+```
+
+Fitting the model defined above.
+
+```{r}
+bt_grid <- grid_regular(trees(range = c(10, 2000)), levels = 5)
+bt_tune<- tune_grid(
+  bt_wf, 
+  resamples = train_folds, 
+  grid = bt_grid)
+
+save(bt_tune, bt_wf, file = "model_fitting/boostedftree.rda")
+```
+
+```{r}
+autoplot(bt_tune)
+```
+
+```{r}
+collect_metrics(bt_tune) %>% arrange(desc(mean))
+best_parameter <- select_best(bt_tune, metric = 'accuracy')
+bt_final <- finalize_workflow(bt_wf, best_parameter)
+bt_final_fit <- fit(bt_final, data = data_train)
+```
+
+* Evaluate
+
+```{r}
+augment(bt_final_fit, new_data = data_test) %>%
+  rsq(truth = revenue, estimate = .pred_class)
+```
+
+
+
+> KNN
+
+Here, I am using K-Nearest Neighbor model.
+```{r}
+knn_model <- 
+  nearest_neighbor(
+    neighbors = tune(),
+    mode = 'classification') %>% 
+  set_engine('kknn')
+
+knn_wf <- workflow() %>% 
+  add_model(knn_model) %>% 
+  add_recipe(shop_recipe)
+```
+
+Fitting the model defined above.
+
+```{r}
+library(kknn)
+knn_grid <- grid_regular(parameters(knn_model), levels = 2)
+knn_tune <- tune_grid(
+  knn_wf, 
+  resamples = train_folds, 
+  grid = knn_grid)
+
+save(knn_tune, knn_wf, file = "model_fitting/knn.rda")
+```
+
+```{r}
+autoplot(knn_tune)
+```
+
+```{r}
+collect_metrics(knn_tune) %>% arrange(desc(mean))
+best_parameter <- select_best(knn_tune, metric = 'accuracy')
+knn_final <- finalize_workflow(knn_wf, best_parameter)
+knn_final_fit <- fit(knn_final, data = data_train)
+```
+
+* Evaluate
+
+```{r}
+augment(knn_final_fit, new_data = data_test) %>%
+  rsq(truth = revenue, estimate = .pred_class)
+```
+
+
+
+> Neural Network
+
+Last model that I chose is Neural Network.
+
+```{r}
+data %>% mutate_if(is.factor, as.numeric)
+```
+
+```{r}
+dim(data)
+```
+
+```{r}
+neural <- keras_model_sequential()
+neural %>%
+  layer_dense(units = 5, activation = 'relu', input_shape = c(17)) %>%
+  layer_dense(units = 2)
+```
+
+```{r}
+model %>% complie(
+  optimizer = 'adam',
+  loss = 'sparse_categorical_crossentropy',
+  metrics = c('accuracy')
+)
+```
+
+```{r}
+neural_fit <- model %>% fit(data_train, revenue, epochs = 5, verbose = 2)
+```
+
+
+* Evaluate
+
+```{r}
+model %>% evaluate(data_test, revenue)
+```
+
+## References
+
+Data Source:
+[https://archive.ics.uci.edu/ml/datasets/Online+Shoppers+Purchasing+Intention+Dataset](https://archive.ics.uci.edu/ml/datasets/Online+Shoppers+Purchasing+Intention+Dataset)
+
+Example final project
+[https://gauchospace.ucsb.edu/courses/pluginfile.php/4550966/mod_resource/content/2/Final-Project.html#](https://gauchospace.ucsb.edu/courses/pluginfile.php/4550966/mod_resource/content/2/Final-Project.html#)
+
+[https://statisticsbyjim.com/regression/multicollinearity-in-regression-analysis/](https://statisticsbyjim.com/regression/multicollinearity-in-regression-analysis/)
+
+[https://www.r-bloggers.com/2021/04/deep-neural-network-in-r/](https://www.r-bloggers.com/2021/04/deep-neural-network-in-r/)
+
+[https://towardsdatascience.com/can-you-predict-if-a-customer-will-make-a-purchase-on-a-website-e6843ec264ae](https://towardsdatascience.com/can-you-predict-if-a-customer-will-make-a-purchase-on-a-website-e6843ec264ae)
