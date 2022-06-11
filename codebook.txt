@@ -1,0 +1,18 @@
+Name / Data Type / Measurement Unit / Description
+
+bounce_rates / numeric / 0 ~ 1 / feature for a web page refers to the percentage of visitors who enter the site from that page and then leave ("bounce") without triggering any other requests to the analytics server during that session
+exit_rates / numeric / 0 ~ 1 / feature for a specific web page is calculated as for all pageviews to the page, the percentage that were the last in the session
+page_values / numeric /  0 ~ 1 / the metrics measured by "Google Analytics" for each page in the e-commerce site
+special_day / factor / 0 ~ 1 / the closeness of the site visiting time to a specific special day (e.g. Mother’s Day, Valentine's Day) in which the sessions are more likely to be finalized with transaction
+month / factor / -- / the month when a session was created
+operating_systems / integer / -- / type of operating system that the customer uses
+browser / integer / -- / type of browser that the customer uses
+region / factor / -- / region where the customer was at when visiting the website
+traffic_type / integer /  -- / traffic type of the customer
+visitor_type / character / Returning_Visitor, New_Visitor, Others / whether is it their first time visiting the website 
+weekend / factor / TRUE, FALSE / whether the day of visiting is a weekend day or not
+revenue / factor / TRUE, FALSE / whether the customer purchased a product or not
+average_administrative / numeric / time(the unit was not described) / average time spent in administrative link
+average_informational / numeric / time(the unit was not described) / average time spent in informational link
+average_prod_related / numeric / time(the unit was not described) / average time spent in product related link
+ 
